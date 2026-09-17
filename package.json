@@ -1,0 +1,9 @@
+{
+  "name": "nfe-viewer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Visualizador de NF-e em lote via Netlify Functions (proxy para consultadanfe.com)",
+  "scripts": {
+    "dev": "netlify dev"
+  }
+}

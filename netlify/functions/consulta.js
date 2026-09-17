@@ -10,6 +10,7 @@ exports.handler = async (event) => {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Expose-Headers': 'X-Error-Code, X-RateLimit-Limit, X-RateLimit-Remaining, Retry-After',
   };
 
   if (event.httpMethod === 'OPTIONS') {
@@ -33,6 +34,9 @@ exports.handler = async (event) => {
 
     const text = await upstream.text();
     const errorCode = upstream.headers.get('X-Error-Code');
+    const rlLimit = upstream.headers.get('X-RateLimit-Limit');
+    const rlRemaining = upstream.headers.get('X-RateLimit-Remaining');
+    const retryAfter = upstream.headers.get('Retry-After');
 
     return {
       statusCode: upstream.status,
@@ -40,6 +44,9 @@ exports.handler = async (event) => {
         ...corsHeaders,
         'Content-Type': upstream.headers.get('Content-Type') || 'application/json',
         ...(errorCode ? { 'X-Error-Code': errorCode } : {}),
+        ...(rlLimit ? { 'X-RateLimit-Limit': rlLimit } : {}),
+        ...(rlRemaining ? { 'X-RateLimit-Remaining': rlRemaining } : {}),
+        ...(retryAfter ? { 'Retry-After': retryAfter } : {}),
       },
       body: text,
     };

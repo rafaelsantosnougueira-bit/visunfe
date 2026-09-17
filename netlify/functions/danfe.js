@@ -10,6 +10,7 @@ exports.handler = async (event) => {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Expose-Headers': 'X-Error-Code, X-XML-Recovery, X-Envelope-Origem, X-RateLimit-Limit, X-RateLimit-Remaining, Retry-After',
   };
 
   if (event.httpMethod === 'OPTIONS') {
@@ -41,6 +42,9 @@ exports.handler = async (event) => {
     const errorCode = upstream.headers.get('X-Error-Code');
     const xmlRecovery = upstream.headers.get('X-XML-Recovery');
     const envelopeOrigem = upstream.headers.get('X-Envelope-Origem');
+    const rlLimit = upstream.headers.get('X-RateLimit-Limit');
+    const rlRemaining = upstream.headers.get('X-RateLimit-Remaining');
+    const retryAfter = upstream.headers.get('Retry-After');
 
     return {
       statusCode: upstream.status,
@@ -50,6 +54,9 @@ exports.handler = async (event) => {
         ...(errorCode ? { 'X-Error-Code': errorCode } : {}),
         ...(xmlRecovery ? { 'X-XML-Recovery': xmlRecovery } : {}),
         ...(envelopeOrigem ? { 'X-Envelope-Origem': envelopeOrigem } : {}),
+        ...(rlLimit ? { 'X-RateLimit-Limit': rlLimit } : {}),
+        ...(rlRemaining ? { 'X-RateLimit-Remaining': rlRemaining } : {}),
+        ...(retryAfter ? { 'Retry-After': retryAfter } : {}),
       },
       body: buffer.toString('base64'),
       isBase64Encoded: true,

@@ -356,6 +356,31 @@
   .card .card-top{ padding:18px 18px 14px; border-bottom:1px solid var(--line); }
   .card .status-row{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
 
+  .card .status-row .left-group{ display:flex; align-items:center; gap:10px; }
+  .card-checkbox{
+    width:17px; height:17px; cursor:pointer; accent-color:var(--chancela);
+    flex-shrink:0;
+  }
+  .card.selected{ border-color:var(--chancela); box-shadow:0 0 0 1px var(--chancela); }
+
+  .selection-bar{
+    display:none;
+    align-items:center; justify-content:space-between;
+    gap:14px; flex-wrap:wrap;
+    background:var(--chancela-bg); border:1px solid var(--chancela);
+    border-radius:var(--radius-s); padding:10px 16px; margin-bottom:16px;
+  }
+  .selection-bar.show{ display:flex; }
+  .selection-bar .sel-info{ font-family:'IBM Plex Mono',monospace; font-size:.82rem; color:var(--chancela); font-weight:600; }
+  .selection-bar .sel-actions{ display:flex; gap:8px; flex-wrap:wrap; }
+  .selection-bar button{
+    background:none; border:1px solid var(--chancela); color:var(--chancela);
+    padding:6px 13px; font-size:.78rem; border-radius:20px; cursor:pointer; font-weight:500;
+  }
+  .selection-bar button:hover{ background:var(--chancela); color:#fff; }
+  .selection-bar button.clear{ border-color:var(--line-strong); color:var(--ink-70); }
+  .selection-bar button.clear:hover{ background:var(--paper-raised); color:var(--ink); }
+
   .badge{
     font-family:'IBM Plex Mono',monospace;
     font-size:.7rem; letter-spacing:.02em;
@@ -370,6 +395,18 @@
   @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
 
   .card .tipo{ font-family:'IBM Plex Mono',monospace; font-size:.7rem; color:var(--ink-40); text-transform:uppercase; }
+
+  .tipo-badge{
+    display:inline-flex; align-items:center; gap:5px;
+    font-family:'IBM Plex Mono',monospace; font-size:.68rem; font-weight:600;
+    text-transform:uppercase; letter-spacing:.02em;
+    padding:3px 9px; border-radius:20px; white-space:nowrap;
+  }
+  .tipo-badge.tipo-nfe{  background:var(--selo-bg);     color:var(--selo); }
+  .tipo-badge.tipo-nfce{ background:var(--chancela-bg); color:var(--chancela); }
+  .tipo-badge.tipo-cte{  background:var(--al-mix-bg);   color:var(--al-mix); }
+  .tipo-badge.tipo-mdfe{ background:var(--ambar-bg);    color:var(--ambar); }
+  .tipo-badge.tipo-other{ background:var(--paper); border:1px solid var(--line); color:var(--ink-70); }
   .card .chave{ font-family:'IBM Plex Mono',monospace; font-size:.74rem; color:var(--ink-40); word-break:break-all; line-height:1.6; }
   .card .filename{ font-weight:600; font-size:.9rem; margin:8px 0 0; }
 
@@ -488,6 +525,8 @@
   }
   .fiscal-tab:hover{ border-color:var(--ink); }
   .fiscal-tab.active{ background:var(--chancela); border-color:var(--chancela); color:#fff; }
+
+  .results-tabs-row{ margin-bottom:18px; }
 
   .fiscal-search{
     display:flex; align-items:center; gap:8px;
@@ -758,6 +797,23 @@
       </div>
     </div>
 
+    <div class="results-tabs-row" id="resultsTabsRow" style="display:none;">
+      <div class="fiscal-tabs" id="resultsTabs">
+        <button class="fiscal-tab active" data-filter="todas">Todas <span id="rTabCountTodas">(0)</span></button>
+        <button class="fiscal-tab" data-filter="ok">Autorizadas <span id="rTabCountOk">(0)</span></button>
+        <button class="fiscal-tab" data-filter="erro">Com erro <span id="rTabCountErro">(0)</span></button>
+      </div>
+    </div>
+
+    <div class="selection-bar" id="selectionBar">
+      <span class="sel-info" id="selectionInfo">0 selecionada(s)</span>
+      <div class="sel-actions">
+        <button id="selDownloadPdfBtn">Baixar selecionadas (.zip PDF)</button>
+        <button id="selDownloadXmlBtn">Baixar selecionadas (.zip XML)</button>
+        <button class="clear" id="selClearBtn">Limpar seleção</button>
+      </div>
+    </div>
+
     <div id="emptyState" class="empty-state">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
       <p>Escolha um modo acima para começar.</p>
@@ -811,6 +867,7 @@
               <th class="num">Base ICMS (R$)</th>
               <th>Alíquota ICMS</th>
               <th class="num">ICMS (R$)</th>
+              <th class="num">ICMS-ST (R$)</th>
               <th class="num">PIS (R$)</th>
               <th class="num">COFINS (R$)</th>
               <th class="num">IPI (R$)</th>
@@ -855,6 +912,10 @@
   <div class="total-item">
     <span class="tl">ICMS</span>
     <span class="tv hi" id="totIcms">R$ 0,00</span>
+  </div>
+  <div class="total-item">
+    <span class="tl">ICMS-ST</span>
+    <span class="tv" id="totIcmsSt">R$ 0,00</span>
   </div>
   <div class="total-item">
     <span class="tl">PIS</span>
@@ -908,8 +969,14 @@ const FN_BASE = "/.netlify/functions";
    ============================================================ */
 function extrairTributacao(xmlString){
   try{
+    // Remove declarações de namespace (xmlns="...", xmlns:foo="...") antes do
+    // parse — garante que querySelector com seletores simples (sem prefixo)
+    // funcione mesmo em XMLs exportados por ERPs que usam namespaces extras
+    // ou prefixados de forma não padrão.
+    const xmlLimpo = xmlString.replace(/\sxmlns(:\w+)?="[^"]*"/g, '');
+
     const parser = new DOMParser();
-    const doc = parser.parseFromString(xmlString, 'application/xml');
+    const doc = parser.parseFromString(xmlLimpo, 'application/xml');
     const parseError = doc.querySelector('parsererror');
     if (parseError) throw new Error('XML malformado: ' + parseError.textContent.substring(0,80));
 
@@ -947,6 +1014,8 @@ function extrairTributacao(xmlString){
     const vCOFINS = num(ICMSTot || totalEl, 'vCOFINS');
     const vIPI    = num(ICMSTot || totalEl, 'vIPI');
     const vCredSN = num(ICMSTot || totalEl, 'vCredICMSSN');
+    const vBCST   = num(ICMSTot || totalEl, 'vBCST');
+    const vST     = num(ICMSTot || totalEl, 'vST');
 
     const detEls = infNFe.querySelectorAll('det') || [...infNFe.getElementsByTagName('det')];
     const itens = [];
@@ -964,6 +1033,7 @@ function extrairTributacao(xmlString){
 
       // ICMS
       let pAliq=0, vBCItem=0, vICMSItem=0, regimeTrib='Normal', cst='';
+      let temST=false, vBCSTItem=0, vICMSSTItem=0, pICMSSTItem=0;
       if (imposto){
         const icmsGrupo = imposto.querySelector('ICMS') || imposto.getElementsByTagName('ICMS')[0];
         if (icmsGrupo){
@@ -981,6 +1051,12 @@ function extrairTributacao(xmlString){
               vICMSItem  = vCredSNItem || vICMSItem;
               vBCItem    = num(icmsFilho, 'vBCSTRet', 'vBC') || vProd;
             }
+            // ICMS-ST (Substituição Tributária) — CST 10, 30, 60, 70, 90 e
+            // CSOSN 201, 202, 500 podem trazer vBCST/vICMSST além do ICMS próprio.
+            vBCSTItem   = num(icmsFilho, 'vBCST');
+            vICMSSTItem = num(icmsFilho, 'vICMSST');
+            pICMSSTItem = num(icmsFilho, 'pICMSST', 'pMVAST');
+            if (vBCSTItem > 0 || vICMSSTItem > 0) temST = true;
           }
         }
       }
@@ -1038,6 +1114,7 @@ function extrairTributacao(xmlString){
       itens.push({
         nItem, xProd, ncm, cfop, vProd,
         pAliq, vBC:vBCItem, vICMS:vICMSItem, cst, regimeTrib,
+        temST, vBCST:vBCSTItem, vICMSST:vICMSSTItem, pICMSST:pICMSSTItem,
         cstPis, pPis, vBCPis, vPis:vPisItem,
         cstCofins, pCofins, vBCCofins, vCofins:vCofinsItem,
         temIPI, cstIpi, pIpi, vBCIpi, vIpi:vIpiItem,
@@ -1062,12 +1139,16 @@ function extrairTributacao(xmlString){
     const vPisCalc    = vPIS    || somaItens('vPis');
     const vCofinsCalc = vCOFINS || somaItens('vCofins');
     const vIpiCalc    = vIPI    || somaItens('vIpi');
+    const vBCSTCalc   = vBCST   || somaItens('vBCST');
+    const vSTCalc     = vST     || somaItens('vICMSST');
     const temAlgumIPI = itens.some(it=>it.temIPI);
+    const temAlgumST  = vSTCalc > 0 || itens.some(it=>it.temST);
 
     return {
       nNF, serie, chave, xNome, cnpj, dhEmi,
       vNF, vBC, vICMS, vCredSN,
       vPIS:vPisCalc, vCOFINS:vCofinsCalc, vIPI:vIpiCalc, temIPI:temAlgumIPI,
+      vBCST:vBCSTCalc, vST:vSTCalc, temST:temAlgumST,
       aliqRep, aliqEfetiva, aliqsUnicas,
       itens, faixas,
     };
@@ -1110,6 +1191,19 @@ function classeAliq(pAliq){
   if (v<=18) return 'al-18';
   return 'al-other';
 }
+function classeTipoDoc(tipo){
+  const t = (tipo||'').toLowerCase();
+  if (t==='nfe')  return 'tipo-nfe';
+  if (t==='nfce') return 'tipo-nfce';
+  if (t==='cte')  return 'tipo-cte';
+  if (t==='mdfe') return 'tipo-mdfe';
+  return 'tipo-other';
+}
+function renderTipoBadge(tipo){
+  if (!tipo) return '';
+  return `<span class="tipo-badge ${classeTipoDoc(tipo)}">${escapeHtml(tipo)}</span>`;
+}
+
 function renderAliqBadge(aliqRep, aliqEfetiva){
   if (aliqRep===0) return `<span class="al-badge al-0">Isento / 0%</span>`;
   if (aliqRep==='misto') return `<span class="al-badge al-mix">Misto · ef. ${PCT(aliqEfetiva)}</span>`;
@@ -1121,6 +1215,8 @@ let currentMode = null;   // 'xml' | 'chave'
 let uploadedFiles = [];   // File[]
 let results = [];
 let isProcessing = false;
+let resultsFiltro = 'todas'; // 'todas' | 'ok' | 'erro' — filtro dos cards de DANFE
+let selecionados = new Set(); // ids de results marcados via checkbox
 
 // ---------- Fiscal state ----------
 let notasFiscais = [];    // resultado de extrairTributacao(), uma por XML processado com sucesso
@@ -1158,6 +1254,16 @@ const progressText = document.getElementById('progressText');
 const progressCount = document.getElementById('progressCount');
 const resultsToolbar = document.getElementById('resultsToolbar');
 const statsLine = document.getElementById('statsLine');
+const resultsTabsRow = document.getElementById('resultsTabsRow');
+const resultsTabs = document.getElementById('resultsTabs');
+const rTabCountTodas = document.getElementById('rTabCountTodas');
+const rTabCountOk = document.getElementById('rTabCountOk');
+const rTabCountErro = document.getElementById('rTabCountErro');
+const selectionBar = document.getElementById('selectionBar');
+const selectionInfo = document.getElementById('selectionInfo');
+const selDownloadPdfBtn = document.getElementById('selDownloadPdfBtn');
+const selDownloadXmlBtn = document.getElementById('selDownloadXmlBtn');
+const selClearBtn = document.getElementById('selClearBtn');
 const resultsGrid = document.getElementById('resultsGrid');
 const emptyState = document.getElementById('emptyState');
 const downloadAllBtn = document.getElementById('downloadAllBtn');
@@ -1191,6 +1297,7 @@ const totNotas = document.getElementById('totNotas');
 const totValor = document.getElementById('totValor');
 const totBase = document.getElementById('totBase');
 const totIcms = document.getElementById('totIcms');
+const totIcmsSt = document.getElementById('totIcmsSt');
 const totPis = document.getElementById('totPis');
 const totCofins = document.getElementById('totCofins');
 const totIpi = document.getElementById('totIpi');
@@ -1314,6 +1421,8 @@ async function consultaPorChave(chave){
     body: JSON.stringify({ chave, format:'json' })
   });
   const errorCode = res.headers.get('X-Error-Code');
+  const retryAfter = res.headers.get('Retry-After');
+  const rlRemaining = res.headers.get('X-RateLimit-Remaining');
   let data = null;
   try { data = await res.json(); } catch(_e){}
   if (!res.ok){
@@ -1321,8 +1430,10 @@ async function consultaPorChave(chave){
     const err = new Error(msg);
     err.code = errorCode || data?.error;
     err.status = res.status;
+    err.retryAfter = retryAfter ? parseInt(retryAfter, 10) : null;
     throw err;
   }
+  if (rlRemaining !== null) rateLimitRemaining.consulta = parseInt(rlRemaining, 10);
   return data;
 }
 
@@ -1334,6 +1445,8 @@ async function danfeViaXml(file){
   const errorCode = res.headers.get('X-Error-Code');
   const xmlRecovery = res.headers.get('X-XML-Recovery');
   const envelopeOrigem = res.headers.get('X-Envelope-Origem');
+  const retryAfter = res.headers.get('Retry-After');
+  const rlRemaining = res.headers.get('X-RateLimit-Remaining');
   let data = null;
   try { data = await res.json(); } catch(_e){}
   if (!res.ok){
@@ -1341,9 +1454,38 @@ async function danfeViaXml(file){
     const err = new Error(msg);
     err.code = errorCode || data?.error;
     err.status = res.status;
+    err.retryAfter = retryAfter ? parseInt(retryAfter, 10) : null;
     throw err;
   }
+  if (rlRemaining !== null) rateLimitRemaining.danfe = parseInt(rlRemaining, 10);
   return { data, xmlRecovery, envelopeOrigem };
+}
+
+// Acompanha o quanto resta nas janelas de rate limit da API (informado pelos
+// headers X-RateLimit-Remaining). Usado para desacelerar o lote proativamente
+// antes de bater o 429, em vez de só reagir depois de errar.
+const rateLimitRemaining = { consulta: null, danfe: null };
+
+/**
+ * Executa uma chamada à API com retry automático em caso de 429.
+ * Respeita o header Retry-After (a doc da API é explícita: "retry imediato
+ * vai falhar" — bloquear retry-storm é a causa mais comum de banimento).
+ * Tenta no máximo `maxTentativas` vezes; entre elas espera o tempo indicado
+ * pela própria API (ou um backoff de segurança se o header não vier).
+ */
+async function chamarComRetry(fn, { onWait } = {}, maxTentativas = 3){
+  let tentativa = 0;
+  while (true){
+    try{
+      return await fn();
+    } catch(err){
+      tentativa++;
+      if (err.status !== 429 || tentativa >= maxTentativas) throw err;
+      const espera = (err.retryAfter && err.retryAfter > 0 ? err.retryAfter : 5 * tentativa);
+      if (onWait) onWait(espera, tentativa, maxTentativas);
+      await new Promise(res=>setTimeout(res, espera * 1000));
+    }
+  }
 }
 
 // ---------- Processing pipeline ----------
@@ -1409,7 +1551,15 @@ async function processAll(){
 
     try{
       if (job.type === 'chave'){
-        const data = await consultaPorChave(job.chave);
+        const data = await chamarComRetry(
+          () => consultaPorChave(job.chave),
+          { onWait: (seg, tent, max) => {
+              partial.message = `Limite de requisições atingido — aguardando ${seg}s (tentativa ${tent}/${max})…`;
+              progressText.textContent = `Aguardando ${seg}s pelo limite da API…`;
+              renderResults();
+            }
+          }
+        );
         applySuccess(partial, data);
         // Modo chave: só temos o XML se a API devolveu xml_base64.
         if (data.xml_base64){
@@ -1427,7 +1577,15 @@ async function processAll(){
           }
         }
       } else {
-        const { data, xmlRecovery, envelopeOrigem } = await danfeViaXml(job.file);
+        const { data, xmlRecovery, envelopeOrigem } = await chamarComRetry(
+          () => danfeViaXml(job.file),
+          { onWait: (seg, tent, max) => {
+              partial.message = `Limite de requisições atingido — aguardando ${seg}s (tentativa ${tent}/${max})…`;
+              progressText.textContent = `Aguardando ${seg}s pelo limite da API…`;
+              renderResults();
+            }
+          }
+        );
         applySuccess(partial, data);
         if (xmlRecovery) partial.flags.push('XML recuperado via chave');
         if (envelopeOrigem) partial.flags.push(`Envelope: ${envelopeOrigem}`);
@@ -1435,14 +1593,33 @@ async function processAll(){
     } catch(err){
       partial.status = 'err';
       partial.message = err.message || 'Falha ao processar';
-      if (err.status === 429) partial.message = 'Limite de requisições atingido — tente novamente em instantes.';
+      if (err.status === 429){
+        partial.message = err.retryAfter
+          ? `Limite de requisições atingido mesmo após novas tentativas. Aguarde ${err.retryAfter}s e use "Tentar de novo".`
+          : 'Limite de requisições atingido mesmo após novas tentativas. Aguarde um pouco e use "Tentar de novo".';
+      }
     }
 
     renderResults();
     renderFiscalTable();
     progressFill.style.width = `${Math.round(((i+1)/jobs.length)*100)}%`;
     progressCount.textContent = `${i+1} / ${jobs.length}`;
-    if (i < jobs.length-1) await new Promise(r=>setTimeout(r, 220));
+    progressText.textContent = 'Processando…';
+
+    // Intervalo entre chamadas: mais espaçado no modo chave (limite de 60/min
+    // na API real, não nas Netlify Functions) do que no modo XML (500/min).
+    // Se a própria API já sinalizou quanto resta na janela, desacelera mais
+    // quando a cota estiver ficando curta, em vez de só reagir ao 429.
+    if (i < jobs.length-1){
+      let intervalo = job.type === 'chave' ? 1100 : 250;
+      const restante = job.type === 'chave' ? rateLimitRemaining.consulta : rateLimitRemaining.danfe;
+      if (restante !== null && restante <= 5){
+        intervalo = Math.max(intervalo, 4000); // cota quase esgotada: freia bastante
+      } else if (restante !== null && restante <= 15){
+        intervalo = Math.max(intervalo, 1800);
+      }
+      await new Promise(r=>setTimeout(r, intervalo));
+    }
   }
 
   progressText.textContent = 'Concluído';
@@ -1479,10 +1656,20 @@ processXmlBtn.addEventListener('click', processAll);
 processChaveBtn.addEventListener('click', processAll);
 
 // ---------- Rendering results ----------
+resultsTabs.addEventListener('click', (e)=>{
+  const btn = e.target.closest('.fiscal-tab');
+  if (!btn) return;
+  resultsTabs.querySelectorAll('.fiscal-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  resultsFiltro = btn.dataset.filter;
+  renderResults();
+});
+
 function renderResults(){
   const has = results.length>0;
   emptyState.style.display = has ? 'none' : 'block';
   resultsToolbar.style.display = has ? 'flex' : 'none';
+  resultsTabsRow.style.display = has ? 'block' : 'none';
 
   const okCount = results.filter(r=>r.status==='ok').length;
   const errCount = results.filter(r=>r.status==='err').length;
@@ -1493,10 +1680,31 @@ function renderResults(){
     ${errCount ? `<span class="err">${errCount} com erro</span>` : ''}
   `;
 
+  rTabCountTodas.textContent = `(${results.length})`;
+  rTabCountOk.textContent = `(${okCount})`;
+  rTabCountErro.textContent = `(${errCount})`;
+
+  // Remove da seleção qualquer id que não exista mais no lote atual
+  const idsAtuais = new Set(results.map(r=>r.id));
+  selecionados.forEach(id=>{ if (!idsAtuais.has(id)) selecionados.delete(id); });
+
+  const visiveis = resultsFiltro === 'todas'
+    ? results
+    : results.filter(r => resultsFiltro==='ok' ? r.status==='ok' : r.status==='err');
+
   resultsGrid.innerHTML = '';
-  results.forEach(r=>{
+
+  if (has && visiveis.length===0){
+    resultsGrid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><p>Nenhuma nota nesse filtro.</p></div>`;
+    updateToolbarButtons();
+    renderSelectionBar();
+    return;
+  }
+
+  visiveis.forEach(r=>{
     const card = document.createElement('div');
-    card.className = `card ${r.status==='err' ? 'err':''}`;
+    const isSelected = selecionados.has(r.id);
+    card.className = `card ${r.status==='err' ? 'err':''} ${isSelected ? 'selected':''}`;
 
     const badgeClass = r.status==='ok' ? 'ok' : r.status==='err' ? 'err' : 'pending';
     const badgeText = r.status==='ok' ? 'Autorizado' : r.status==='err' ? 'Erro' : 'Consultando';
@@ -1505,8 +1713,11 @@ function renderResults(){
     card.innerHTML = `
       <div class="card-top">
         <div class="status-row">
-          <span class="badge ${badgeClass}"><span class="${dotClass}"></span>${badgeText}</span>
-          ${r.tipo ? `<span class="tipo">${escapeHtml(r.tipo)}</span>` : ''}
+          <div class="left-group">
+            ${r.status==='ok' ? `<input type="checkbox" class="card-checkbox" ${isSelected?'checked':''} aria-label="Selecionar nota">` : ''}
+            <span class="badge ${badgeClass}"><span class="${dotClass}"></span>${badgeText}</span>
+          </div>
+          ${renderTipoBadge(r.tipo)}
         </div>
         <div class="filename">${escapeHtml(r.label)}</div>
         ${r.chave ? `<div class="chave">${escapeHtml(r.chave)}</div>` : ''}
@@ -1527,6 +1738,12 @@ function renderResults(){
     if (r.status==='ok'){
       card.querySelector('.btn-preview').addEventListener('click', ()=> openPreview(r));
       card.querySelector('.btn-download').addEventListener('click', ()=> downloadOne(r));
+      card.querySelector('.card-checkbox').addEventListener('change', (e)=>{
+        if (e.target.checked) selecionados.add(r.id);
+        else selecionados.delete(r.id);
+        card.classList.toggle('selected', e.target.checked);
+        renderSelectionBar();
+      });
     }
     if (r.status==='err'){
       card.querySelector('.btn-retry')?.addEventListener('click', ()=> retryOne(r));
@@ -1536,6 +1753,27 @@ function renderResults(){
   });
 
   updateToolbarButtons();
+  renderSelectionBar();
+}
+
+function renderSelectionBar(){
+  const n = selecionados.size;
+  selectionBar.classList.toggle('show', n>0);
+  selectionInfo.textContent = `${n} selecionada(s)`;
+}
+
+selClearBtn.addEventListener('click', ()=>{
+  selecionados.clear();
+  renderResults();
+});
+
+selDownloadPdfBtn.addEventListener('click', ()=> baixarSelecionadasZip('pdf'));
+selDownloadXmlBtn.addEventListener('click', ()=> baixarSelecionadasZip('xml'));
+
+async function baixarSelecionadasZip(formato){
+  const alvo = results.filter(r=> selecionados.has(r.id) && r.status==='ok');
+  if (!alvo.length) return;
+  await gerarZipDeNotas(alvo, formato, formato==='pdf'?selDownloadPdfBtn:selDownloadXmlBtn, `selecionadas-${formato}`);
 }
 
 function updateToolbarButtons(){
@@ -1550,12 +1788,26 @@ async function retryOne(r){
   renderResults();
   try{
     if (r.source === 'chave'){
-      const data = await consultaPorChave(r.chave);
+      const data = await chamarComRetry(
+        () => consultaPorChave(r.chave),
+        { onWait: (seg, tent, max) => {
+            r.message = `Limite de requisições atingido — aguardando ${seg}s (tentativa ${tent}/${max})…`;
+            renderResults();
+          }
+        }
+      );
       applySuccess(r, data);
     } else {
       const file = uploadedFiles.find(f=>f.name===r.label);
       if (!file) throw new Error('Arquivo original não está mais disponível — reenvie.');
-      const { data, xmlRecovery, envelopeOrigem } = await danfeViaXml(file);
+      const { data, xmlRecovery, envelopeOrigem } = await chamarComRetry(
+        () => danfeViaXml(file),
+        { onWait: (seg, tent, max) => {
+            r.message = `Limite de requisições atingido — aguardando ${seg}s (tentativa ${tent}/${max})…`;
+            renderResults();
+          }
+        }
+      );
       applySuccess(r, data);
       if (xmlRecovery) r.flags.push('XML recuperado via chave');
       if (envelopeOrigem) r.flags.push(`Envelope: ${envelopeOrigem}`);
@@ -1563,6 +1815,11 @@ async function retryOne(r){
   } catch(err){
     r.status = 'err';
     r.message = err.message || 'Falha ao processar';
+    if (err.status === 429){
+      r.message = err.retryAfter
+        ? `Limite de requisições atingido mesmo após novas tentativas. Aguarde ${err.retryAfter}s e tente de novo.`
+        : 'Limite de requisições atingido mesmo após novas tentativas. Aguarde um pouco e tente de novo.';
+    }
   }
   renderResults();
 }
@@ -1659,6 +1916,7 @@ function renderFiscalTable(){
       <td class="num">${BRL(nota.vBC)}</td>
       <td>${renderAliqBadge(nota.aliqRep, nota.aliqEfetiva)}</td>
       <td class="num" style="font-weight:600;">${BRL(nota.vICMS)}</td>
+      <td class="num">${nota.temST ? BRL(nota.vST) : '—'}</td>
       <td class="num">${BRL(nota.vPIS)}</td>
       <td class="num">${BRL(nota.vCOFINS)}</td>
       <td class="num">${nota.temIPI ? BRL(nota.vIPI) : '—'}</td>
@@ -1673,7 +1931,7 @@ function renderFiscalTable(){
     const trItens = document.createElement('tr');
     trItens.className = `itens-row${isOpen ? ' open' : ''}`;
     trItens.id = rowId;
-    trItens.innerHTML = `<td colspan="11">${renderItensPanel(nota)}</td>`;
+    trItens.innerHTML = `<td colspan="12">${renderItensPanel(nota)}</td>`;
     fiscalTableBody.appendChild(trItens);
   });
 
@@ -1699,6 +1957,8 @@ function renderItensPanel(nota){
       <td class="num">${BRL(it.vBC)}</td>
       <td class="num">${it.pAliq>0 ? PCT(it.pAliq) : '—'}</td>
       <td class="num" style="font-weight:600;">${BRL(it.vICMS)}</td>
+      <td class="num">${it.temST ? BRL(it.vBCST) : '—'}</td>
+      <td class="num">${it.temST ? BRL(it.vICMSST) : '—'}</td>
       <td class="num">${it.pPis>0 ? PCT(it.pPis) : '—'}</td>
       <td class="num">${BRL(it.vPis)}</td>
       <td class="num">${it.pCofins>0 ? PCT(it.pCofins) : '—'}</td>
@@ -1720,7 +1980,8 @@ function renderItensPanel(nota){
 
   return `
     <div class="itens-panel">
-      <h4>Itens da nota — ICMS, PIS, COFINS e IPI</h4>
+      <h4>Itens da nota — ICMS, ICMS-ST, PIS, COFINS e IPI</h4>
+      ${nota.temST ? `<p style="margin:0 0 10px; font-size:.8rem; color:var(--chancela); font-family:'IBM Plex Mono',monospace;">⚠ Esta nota tem itens com Substituição Tributária (ICMS-ST).</p>` : ''}
       <div style="overflow-x:auto;">
         <table class="itens-sub">
           <thead>
@@ -1728,12 +1989,13 @@ function renderItensPanel(nota){
               <th>Produto</th><th>NCM</th><th>CFOP</th><th>CST/CSOSN</th>
               <th class="num">Vl. Produto</th>
               <th class="num">Base ICMS</th><th class="num">Alíq. ICMS</th><th class="num">ICMS</th>
+              <th class="num">Base ST</th><th class="num">ICMS-ST</th>
               <th class="num">Alíq. PIS</th><th class="num">PIS</th>
               <th class="num">Alíq. COFINS</th><th class="num">COFINS</th>
               <th class="num">IPI</th>
             </tr>
           </thead>
-          <tbody>${itensHtml || '<tr><td colspan="13" style="color:var(--ink-40);padding:12px;">Nenhum item tributável encontrado.</td></tr>'}</tbody>
+          <tbody>${itensHtml || '<tr><td colspan="15" style="color:var(--ink-40);padding:12px;">Nenhum item tributável encontrado.</td></tr>'}</tbody>
         </table>
       </div>
       ${Object.keys(nota.faixas).length>0 ? `
@@ -1747,11 +2009,12 @@ function renderItensPanel(nota){
 }
 
 function atualizarTotaisFiscais(){
-  let sumValor=0, sumBase=0, sumIcms=0, sumPis=0, sumCofins=0, sumIpi=0;
+  let sumValor=0, sumBase=0, sumIcms=0, sumSt=0, sumPis=0, sumCofins=0, sumIpi=0;
   notasFiscais.forEach(n=>{
     sumValor  += n.vNF;
     sumBase   += n.vBC;
     sumIcms   += n.vICMS;
+    sumSt     += n.vST;
     sumPis    += n.vPIS;
     sumCofins += n.vCOFINS;
     sumIpi    += n.vIPI;
@@ -1762,6 +2025,7 @@ function atualizarTotaisFiscais(){
   totValor.textContent = 'R$ ' + BRL(sumValor);
   totBase.textContent  = 'R$ ' + BRL(sumBase);
   totIcms.textContent  = 'R$ ' + BRL(sumIcms);
+  totIcmsSt.textContent= 'R$ ' + BRL(sumSt);
   totPis.textContent   = 'R$ ' + BRL(sumPis);
   totCofins.textContent= 'R$ ' + BRL(sumCofins);
   totIpi.textContent   = 'R$ ' + BRL(sumIpi);
@@ -1786,12 +2050,14 @@ function exportarCSVFiscal(){
   const linhasNotas = [[
     'Nº NF','Série','Chave de Acesso','Emitente','CNPJ','Data Emissão',
     'Valor NF (R$)','Base ICMS (R$)','ICMS (R$)','Alíq. ICMS Efetiva (%)','Alíquotas ICMS Presentes',
+    'Base ICMS-ST (R$)','ICMS-ST (R$)',
     'PIS (R$)','COFINS (R$)','IPI (R$)','Arquivo'
   ].join(SEP)];
 
   const linhasItens = [[
     'Nº NF','Emitente','CNPJ','Data','Nº Item','Produto','NCM','CFOP','CST/CSOSN',
     'Vl. Produto (R$)','Base ICMS Item (R$)','Alíq. ICMS (%)','ICMS Item (R$)',
+    'Base ICMS-ST Item (R$)','ICMS-ST Item (R$)',
     'Alíq. PIS (%)','PIS Item (R$)','Alíq. COFINS (%)','COFINS Item (R$)','IPI Item (R$)','Regime Tributário'
   ].join(SEP)];
 
@@ -1803,6 +2069,7 @@ function exportarCSVFiscal(){
       csvEsc(nota.xNome), csvEsc(formatCNPJ(nota.cnpj)), csvEsc(formatData(nota.dhEmi)),
       csvEsc(numBR(nota.vNF)), csvEsc(numBR(nota.vBC)), csvEsc(numBR(nota.vICMS)),
       csvEsc(numBR(nota.aliqEfetiva)), csvEsc(nota.aliqsUnicas.map(a=>PCT(a)).join(' | ')),
+      csvEsc(nota.temST ? numBR(nota.vBCST) : ''), csvEsc(nota.temST ? numBR(nota.vST) : ''),
       csvEsc(numBR(nota.vPIS)), csvEsc(numBR(nota.vCOFINS)), csvEsc(numBR(nota.vIPI)),
       csvEsc(nota._arquivo)
     ].join(SEP));
@@ -1812,6 +2079,7 @@ function exportarCSVFiscal(){
         csvEsc(nota.nNF), csvEsc(nota.xNome), csvEsc(formatCNPJ(nota.cnpj)), csvEsc(formatData(nota.dhEmi)),
         csvEsc(it.nItem), csvEsc(it.xProd), csvEsc(it.ncm), csvEsc(it.cfop), csvEsc(it.cst),
         csvEsc(numBR(it.vProd)), csvEsc(numBR(it.vBC)), csvEsc(numBR(it.pAliq)), csvEsc(numBR(it.vICMS)),
+        csvEsc(it.temST ? numBR(it.vBCST) : ''), csvEsc(it.temST ? numBR(it.vICMSST) : ''),
         csvEsc(numBR(it.pPis)), csvEsc(numBR(it.vPis)),
         csvEsc(numBR(it.pCofins)), csvEsc(numBR(it.vCofins)),
         csvEsc(it.temIPI ? numBR(it.vIpi) : ''),
@@ -1820,13 +2088,14 @@ function exportarCSVFiscal(){
     }
   }
 
-  let sumVNF=0, sumBC=0, sumICMS=0, sumPIS=0, sumCOFINS=0, sumIPI=0;
-  notasFiscais.forEach(n=>{ sumVNF+=n.vNF; sumBC+=n.vBC; sumICMS+=n.vICMS; sumPIS+=n.vPIS; sumCOFINS+=n.vCOFINS; sumIPI+=n.vIPI; });
+  let sumVNF=0, sumBC=0, sumICMS=0, sumST=0, sumPIS=0, sumCOFINS=0, sumIPI=0;
+  notasFiscais.forEach(n=>{ sumVNF+=n.vNF; sumBC+=n.vBC; sumICMS+=n.vICMS; sumST+=n.vST; sumPIS+=n.vPIS; sumCOFINS+=n.vCOFINS; sumIPI+=n.vIPI; });
   const aliqM = sumBC>0 ? (sumICMS/sumBC)*100 : 0;
   linhasNotas.push('');
   linhasNotas.push([
     'TOTAL','','','','','',
     csvEsc(numBR(sumVNF)), csvEsc(numBR(sumBC)), csvEsc(numBR(sumICMS)), csvEsc(numBR(aliqM)), '',
+    csvEsc(numBR(sumST)), '',
     csvEsc(numBR(sumPIS)), csvEsc(numBR(sumCOFINS)), csvEsc(numBR(sumIPI)), ''
   ].join(SEP));
 
@@ -1900,17 +2169,22 @@ dlAllMenu.querySelectorAll('button[data-formato]').forEach(btn=>{
 async function baixarTodosZip(formato){
   const ok = results.filter(r=>r.status==='ok');
   if (!ok.length) return;
+  await gerarZipDeNotas(ok, formato, downloadAllBtn, `danfes-${formato}`);
+}
 
-  downloadAllBtn.disabled = true;
-  const textoOriginal = downloadAllBtn.textContent;
-  downloadAllBtn.textContent = 'Preparando .zip…';
+async function gerarZipDeNotas(lista, formato, btnRef, prefixoArquivo){
+  if (!lista.length) return;
+
+  const textoOriginal = btnRef.textContent;
+  btnRef.disabled = true;
 
   try{
     const zip = new JSZip();
     let incluidos = 0;
     let faltantes = 0;
+    btnRef.textContent = 'Preparando .zip…';
 
-    for (const r of ok){
+    for (const r of lista){
       const nomeBase = (r.chave || r.label.replace(/\.xml$/i,'')).trim();
 
       if (formato === 'pdf'){
@@ -1928,9 +2202,12 @@ async function baixarTodosZip(formato){
 
       // Se não temos o XML ainda, busca via chave de acesso (consulta na API)
       if (!xmlB64 && r.chave){
-        downloadAllBtn.textContent = `Buscando XML ${incluidos+faltantes+1}/${ok.length}…`;
+        btnRef.textContent = `Buscando XML ${incluidos+faltantes+1}/${lista.length}…`;
         try{
-          const data = await consultaPorChave(r.chave);
+          const data = await chamarComRetry(
+            () => consultaPorChave(r.chave),
+            { onWait: (seg) => { btnRef.textContent = `Aguardando ${seg}s (limite da API)…`; } }
+          );
           if (data.xml_base64){
             xmlB64 = data.xml_base64;
             r.xmlBase64 = xmlB64; // cacheia para próximas exportações
@@ -1938,7 +2215,11 @@ async function baixarTodosZip(formato){
         } catch(_e){
           // segue sem XML para esta nota; contabiliza como faltante abaixo
         }
-        await new Promise(res=>setTimeout(res, 200)); // respeita rate limit
+        // Mesmo intervalo usado no lote principal — evita nova rajada de 429
+        // logo após um lote de DANFEs que já consumiu parte da cota.
+        const restante = rateLimitRemaining.consulta;
+        const intervalo = (restante !== null && restante <= 5) ? 4000 : 1100;
+        await new Promise(res=>setTimeout(res, intervalo));
       }
 
       if (xmlB64){
@@ -1954,13 +2235,13 @@ async function baixarTodosZip(formato){
       return;
     }
 
-    downloadAllBtn.textContent = 'Compactando…';
+    btnRef.textContent = 'Compactando…';
     const blob = await zip.generateAsync({ type:'blob' });
     const url = URL.createObjectURL(blob);
     const dataHoje = new Date().toISOString().substring(0,10);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `danfes-${formato}-${dataHoje}.zip`;
+    a.download = `${prefixoArquivo || 'notas-'+formato}-${dataHoje}.zip`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1974,8 +2255,8 @@ async function baixarTodosZip(formato){
   } catch(err){
     showToast(`Erro ao gerar .zip: ${err.message}`);
   } finally {
-    downloadAllBtn.disabled = false;
-    downloadAllBtn.textContent = textoOriginal;
+    btnRef.disabled = false;
+    btnRef.textContent = textoOriginal;
   }
 }
 
